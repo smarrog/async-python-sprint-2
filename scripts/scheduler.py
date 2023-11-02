@@ -59,7 +59,8 @@ class Scheduler:
 
         pending_copy = copy(self._pending)
         for job in pending_copy:
-            self.__start_job_if_can(job)
+            if job in self._pending:  # can be already executed if there were maby tasks in a dependency row
+                self.__start_job_if_can(job)
 
     def stop(self) -> None:
         logger.info("Stop scheduler")

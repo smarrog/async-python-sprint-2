@@ -1,8 +1,19 @@
+import os.path
 import time
 import datetime as dt
 import logging
 
-from job import SimpleSyncJob, SimpleAsyncJob, Job
+from job import (
+    Job,
+    SimpleSyncJob,
+    SimpleAsyncJob,
+    CreateDirectoryJob,
+    WriteTextFileJob,
+    ReadTextFileJob,
+    RemoveFileJob,
+    RemoveDirectoryJob,
+    UrlRequestJob
+)
 from scheduler import Scheduler
 from log_settings import init as init_logging
 
@@ -87,10 +98,64 @@ def scheduler_scenario():
     time.sleep(2)
 
 
+def files_scenario():
+    logging.debug("======> Files system")
+
+    s = Scheduler()
+
+    directory_path = os.path.join("output", "files")
+    file_name = "tmp.txt"
+    file_path = os.path.join(directory_path, file_name)
+
+    create_directory_job = CreateDirectoryJob(directory_path)
+    create_file_job = WriteTextFileJob(file_path, "Hello", dependencies=[create_directory_job.id])
+    append_file_job = WriteTextFileJob(file_path, " World", True, dependencies=[create_file_job.id])
+    read_file_job = ReadTextFileJob(file_path, dependencies=[append_file_job.id])
+    remove_file_job = RemoveFileJob(file_path, dependencies=[read_file_job.id])
+    remove_directory_job = RemoveDirectoryJob(directory_path, False, dependencies=[remove_file_job.id])
+
+    s.schedule(create_directory_job)
+    s.schedule(create_file_job)
+    s.schedule(append_file_job)
+    s.schedule(read_file_job)
+    s.schedule(remove_file_job)
+    s.schedule(remove_directory_job)
+
+    s.run()
+
+
+def network_scenario():
+    logging.debug("======> Network")
+
+    s = Scheduler()
+
+    url = "https://worldtimeapi.org/api/timezone/Europe/Moscow"
+    directory_path = os.path.join("output", "network")
+    file_name = "response.txt"
+    file_path = os.path.join(directory_path, file_name)
+
+    create_directory_job = CreateDirectoryJob(directory_path)
+    url_request_job = UrlRequestJob(url)
+
+    def write_response():
+        with open(file_path, "w") as f:
+            f.write(url_request_job.result)
+
+    write_response_job = SimpleSyncJob(write_response, dependencies=[url_request_job.id, create_directory_job.id])
+
+    s.schedule(create_directory_job)
+    s.schedule(url_request_job)
+    s.schedule(write_response_job)
+
+    s.run()
+
+
 if __name__ == "__main__":
     init_logging()
 
     naked_jobs_scenario()
     scheduler_scenario()
+    files_scenario()
+    network_scenario()
 
     logging.debug("Exit")

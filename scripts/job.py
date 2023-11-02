@@ -1,5 +1,10 @@
 import datetime as dt
+import os
+import shutil
 import logging
+from pathlib import Path
+import urllib.request
+import urllib.parse
 import time
 from typing import Self, Any, Callable, Generator, Optional
 from enum import Enum
@@ -45,7 +50,7 @@ class Job(ABC):
         self._on_complete_handlers: set[Job.CompleteHandler] = set()
 
     def __repr__(self) -> str:
-        return f"<Job \"{self._id}\" ({self._state.name}) -> {self._result}>"
+        return f"<Job [{self.__class__}] \"{self._id}\" ({self._state.name}) -> {self._result}>"
 
     @property
     def id(self) -> UUID:
@@ -253,3 +258,129 @@ class SimpleAsyncJob(SimpleSyncJob):
         if self._task_cancellation_token.is_active:
             self._task_cancellation_token.cancel()  # always cancel for simplicity
         self._task_cancellation_token = None
+
+
+class CreateDirectoryJob(Job):
+    def __init__(self,
+                 path: str,
+                 start_at: dt = dt.datetime.now(),
+                 max_working_time: float = 0,
+                 tries: int = 1,
+                 dependencies: list | None = None):
+        self._path = path
+        super().__init__(start_at, max_working_time, tries, dependencies)
+
+    def _run(self) -> None:
+        Path(self._path).mkdir(parents=True, exist_ok=True)
+
+        logger.info("Directory %s was created", self._path)
+
+        self._notify_complete(True)
+
+
+class RemoveDirectoryJob(Job):
+    def __init__(self,
+                 path: str,
+                 is_recursive: bool = False,
+                 start_at: dt = dt.datetime.now(),
+                 max_working_time: float = 0,
+                 tries: int = 1,
+                 dependencies: list | None = None):
+        self._path = path
+        self._is_recursive = is_recursive
+        super().__init__(start_at, max_working_time, tries, dependencies)
+
+    def _run(self) -> None:
+        if os.path.isdir(self._path):
+            os.rmdir(self._path)
+        else:
+            shutil.rmtree(self._path)
+
+        logger.info("Directory %s was removed", self._path)
+
+        self._notify_complete(True)
+
+
+class WriteTextFileJob(Job):
+    def __init__(self,
+                 path: str,
+                 text: str,
+                 is_append: bool = False,
+                 start_at: dt = dt.datetime.now(),
+                 max_working_time: float = 0,
+                 tries: int = 1,
+                 dependencies: list | None = None):
+        self._path = path
+        self._text = text
+        self._is_append = is_append
+        super().__init__(start_at, max_working_time, tries, dependencies)
+
+    def _run(self) -> None:
+        if self._is_append:
+            mode = "a"
+        else:
+            mode = "w"
+
+        with open(self._path, mode) as f:
+            f.write(self._text)
+
+        logger.info("File %s was updated", self._path)
+
+        self._notify_complete(True)
+
+
+class ReadTextFileJob(Job):
+    def __init__(self,
+                 path: str,
+                 start_at: dt = dt.datetime.now(),
+                 max_working_time: float = 0,
+                 tries: int = 1,
+                 dependencies: list | None = None):
+        self._path = path
+        super().__init__(start_at, max_working_time, tries, dependencies)
+
+    def _run(self) -> None:
+        with open(self._path, "r") as f:
+            result = f.read()
+
+        logger.info("%s contains: %s", self._path, result)
+
+        self._notify_complete(result)
+
+
+class RemoveFileJob(Job):
+    def __init__(self,
+                 path: str,
+                 start_at: dt = dt.datetime.now(),
+                 max_working_time: float = 0,
+                 tries: int = 1,
+                 dependencies: list | None = None):
+        self._path = path
+        super().__init__(start_at, max_working_time, tries, dependencies)
+
+    def _run(self) -> None:
+        if os.path.isfile(self._path):
+            os.remove(self._path)
+
+        logger.info("File %s was removed", self._path)
+
+        self._notify_complete(True)
+
+
+class UrlRequestJob(Job):
+    def __init__(self,
+                 url: str,
+                 start_at: dt = dt.datetime.now(),
+                 max_working_time: float = 0,
+                 tries: int = 1,
+                 dependencies: list | None = None):
+        self._url = url
+        super().__init__(start_at, max_working_time, tries, dependencies)
+
+    def _run(self) -> None:
+        response = urllib.request.urlopen(self._url)
+        result = response.read().decode('utf-8')
+
+        logger.info("Request to %s completed and parsed", self._url)
+
+        self._notify_complete(result)
